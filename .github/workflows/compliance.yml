@@ -1,0 +1,249 @@
+# .github/workflows/compliance.yml
+#
+# Runs weekly (and on demand) to:
+#   1. Collect evidence from GCP + Google Workspace via Python collectors
+#   2. Generate CSV reports from evidence + controls.yaml
+#   3. Commit evidence + reports back to the repo
+#   4. Open a GitHub Issue for any FAIL findings (deduped by title)
+#
+# Required repository secrets:
+#   WIF_PROVIDER          — Workload Identity Federation provider resource name
+#   WIF_SERVICE_ACCOUNT   — Service account email for GCP auth
+#   WORKSPACE_SA_JSON     — Service account JSON for Workspace Admin SDK (base64-encoded)
+#
+# Required repository variables (Settings > Variables):
+#   GCP_PROJECT_ID        — e.g. my-project-123
+#   WORKSPACE_DOMAIN      — e.g. mycompany.com
+#   WORKSPACE_ADMIN_EMAIL — Super admin email for domain-wide delegation
+#
+# OIDC setup (one-time, no long-lived keys needed):
+#   See docs/setup.md for Workload Identity Federation configuration.
+
+name: Compliance — collect and report
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # 06:00 UTC every Monday
+  workflow_dispatch:
+    inputs:
+      collector:
+        description: "Collector to run (all | gcp_iam_posture | gcp_audit_logging | gcp_encryption | gcp_scc_findings | workspace_access_control)"
+        required: false
+        default: "all"
+
+permissions:
+  id-token: write   # OIDC → GCP Workload Identity Federation
+  contents: write   # commit evidence + reports back to repo
+  issues: write     # open gap issues
+
+jobs:
+  collect-and-report:
+    name: Collect evidence and generate reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      GCP_PROJECT_ID:        ${{ vars.GCP_PROJECT_ID }}
+      WORKSPACE_DOMAIN:      ${{ vars.WORKSPACE_DOMAIN }}
+      WORKSPACE_ADMIN_EMAIL: ${{ vars.WORKSPACE_ADMIN_EMAIL }}
+      EVIDENCE_DIR:          ${{ github.workspace }}/evidence
+      REPORTS_DIR:           reports
+      PYTHON_VERSION:        "3.12"
+
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── 2. Python setup ───────────────────────────────────────────────────
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyyaml
+
+      # ── 3. Authenticate to GCP via Workload Identity Federation ──────────
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # ── 4. Write Workspace service account key ────────────────────────────
+      - name: Write Workspace SA key
+        if: env.WORKSPACE_DOMAIN != ''
+        run: |
+          echo "${{ secrets.WORKSPACE_SA_JSON }}" | base64 -d > /tmp/workspace-sa.json
+
+      # ── 5. Run collectors ─────────────────────────────────────────────────
+      - name: Run all collectors
+        id: collect
+        run: |
+          cd collectors
+          python run_all.py \
+            --project "$GCP_PROJECT_ID" \
+            --domain  "$WORKSPACE_DOMAIN" \
+            --sa-file /tmp/workspace-sa.json \
+            --admin-email "$WORKSPACE_ADMIN_EMAIL"
+        env:
+          EVIDENCE_DIR: ${{ env.EVIDENCE_DIR }}
+
+      # ── 6. Generate CSV reports ───────────────────────────────────────────
+      - name: Generate compliance reports
+        id: report
+        run: |
+          python generate_report.py \
+            --evidence-dir "$EVIDENCE_DIR" \
+            --controls controls.yaml \
+            --output-dir "$REPORTS_DIR"
+
+          FAIL_COUNT=$(python - <<'EOF'
+          import csv, pathlib, sys
+          path = pathlib.Path("reports/01_summary.csv")
+          if not path.exists():
+              print(0); sys.exit(0)
+          print(sum(1 for r in csv.DictReader(open(path)) if r.get("status") == "FAIL"))
+          EOF
+          )
+          FINDING_COUNT=$(python - <<'EOF'
+          import csv, pathlib, sys
+          path = pathlib.Path("reports/03_findings_detail.csv")
+          if not path.exists():
+              print(0); sys.exit(0)
+          print(sum(1 for _ in csv.DictReader(open(path))))
+          EOF
+          )
+          echo "fail_count=${FAIL_COUNT}" >> "$GITHUB_OUTPUT"
+          echo "finding_count=${FINDING_COUNT}" >> "$GITHUB_OUTPUT"
+
+      # ── 7. Commit evidence and reports back to repo ───────────────────────
+      - name: Commit evidence and reports
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add evidence/ reports/
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+
+          RUN_DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          git commit -m "chore(compliance): evidence + reports ${RUN_DATE}
+
+          Collectors : IAM, Logging, Encryption, SCC, Workspace
+          Project    : ${{ env.GCP_PROJECT_ID }}
+          Fails      : ${{ steps.report.outputs.fail_count }}
+          Findings   : ${{ steps.report.outputs.finding_count }}
+          Run        : ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          git push
+
+      # ── 8. Open / update GitHub Issues for each FAIL ─────────────────────
+      - name: Open issues for failing controls
+        if: steps.report.outputs.fail_count != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs   = require('fs');
+            const path = require('path');
+
+            function parseCsv(text) {
+              const [header, ...lines] = text.trim().split('\n');
+              const keys = header.split(',').map(k => k.trim().replace(/^"|"$/g, ''));
+              return lines.map(line => {
+                const vals = [];
+                let cur = '', inQ = false;
+                for (const ch of line) {
+                  if (ch === '"') { inQ = !inQ; }
+                  else if (ch === ',' && !inQ) { vals.push(cur.trim()); cur = ''; }
+                  else { cur += ch; }
+                }
+                vals.push(cur.trim());
+                return Object.fromEntries(keys.map((k, i) => [k, (vals[i] || '').replace(/^"|"$/g, '')]));
+              });
+            }
+
+            const summaryPath = path.join(process.env.GITHUB_WORKSPACE, 'reports/01_summary.csv');
+            const detailPath  = path.join(process.env.GITHUB_WORKSPACE, 'reports/03_findings_detail.csv');
+
+            const summaryRows = parseCsv(fs.readFileSync(summaryPath, 'utf8'));
+            const detailRows  = fs.existsSync(detailPath)
+              ? parseCsv(fs.readFileSync(detailPath, 'utf8')) : [];
+
+            const failRows = summaryRows.filter(r => r.status === 'FAIL');
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'compliance,automated', per_page: 100,
+            });
+            const existingTitles = new Set(existing.data.map(i => i.title));
+
+            const runUrl  = `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const runDate = new Date().toISOString().slice(0, 10);
+
+            for (const row of failRows) {
+              const title = `[Compliance] FAIL — ${row.description}`;
+              if (existingTitles.has(title)) { console.log(`Skipping duplicate: ${title}`); continue; }
+
+              const related = detailRows
+                .filter(d => d.evidence_id === row.evidence_id).slice(0, 10);
+
+              const detailTable = related.length > 0
+                ? `### Affected resources\n\n| Resource | Detail | Remediation |\n|---|---|---|\n` +
+                  related.map(d => `| \`${d.resource}\` | ${d.detail || '—'} | ${d.remediation || '—'} |`).join('\n')
+                : '';
+
+              const body = `## Compliance gap detected
+
+            | Field | Value |
+            |---|---|
+            | **Signal** | \`${row.signal}\` |
+            | **Evidence** | \`${row.evidence_id}\` |
+            | **GCP project** | \`${row.gcp_project}\` |
+            | **Detected** | ${runDate} |
+            | **PCI-DSS** | ${row['PCI-DSS'] || '—'} |
+            | **SOC 2** | ${row['SOC 2'] || '—'} |
+            | **ISO 27001** | ${row['ISO 27001'] || '—'} |
+            | **ISO 42001** | ${row['ISO 42001'] || '—'} |
+
+            ${detailTable}
+
+            ### Next steps
+            1. Review the evidence artifact in \`evidence/${row.evidence_id}/latest.json\`
+            2. Remediate the finding in GCP or Google Workspace
+            3. Re-run the [collector workflow](${runUrl}) to verify
+            4. Close this issue once the signal shows PASS
+
+            ---
+            *Opened automatically by the compliance workflow · [Run ${context.runId}](${runUrl})*`;
+
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body,
+                labels: ['compliance', 'automated', row.evidence_id.replace(/_/g, '-')],
+              });
+              console.log(`Opened issue: ${title}`);
+            }
+
+      # ── 9. Job summary ────────────────────────────────────────────────────
+      - name: Write job summary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## Compliance run — $(date -u +"%Y-%m-%d %H:%M UTC")
+
+          | | |
+          |---|---|
+          | **Project** | ${{ env.GCP_PROJECT_ID }} |
+          | **Workspace domain** | ${{ env.WORKSPACE_DOMAIN }} |
+          | **Failing controls** | ${{ steps.report.outputs.fail_count || 'N/A' }} |
+          | **Total findings** | ${{ steps.report.outputs.finding_count || 'N/A' }} |
+          | **Reports** | \`reports/01_summary.csv\`, \`02_control_coverage.csv\`, \`03_findings_detail.csv\` |
+
+          EOF

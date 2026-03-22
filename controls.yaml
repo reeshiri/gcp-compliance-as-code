@@ -1,0 +1,232 @@
+# controls.yaml
+# Maps each compliance_signal from collectors to framework control IDs.
+# One signal can satisfy controls across multiple frameworks simultaneously.
+# Mirrors the structure of the AWS version exactly.
+#
+# Structure:
+#   evidence_id   : matches the folder name under evidence/
+#   signal        : key inside compliance_signals in the artifact
+#   description   : human-readable label for the report
+#   frameworks    : control IDs per framework that this signal satisfies
+#
+# Overlap efficiency key:
+#   HIGH   — signal satisfies 3-4 frameworks simultaneously
+#   MEDIUM — signal satisfies 2 frameworks
+#   LOW    — signal is unique to one framework
+
+controls:
+
+  # ── GCP IAM Posture ───────────────────────────────────────────────────────
+  # Overlap: HIGH — mirrors aws_iam_posture signals
+
+  - evidence_id: gcp_iam_posture
+    signal: no_stale_sa_keys_over_90d
+    description: No service account keys older than 90 days
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["8.3.9"]
+      soc2:      ["CC6.1", "CC6.2"]
+      iso_27001: ["A.5.16", "A.5.18"]
+      iso_42001: []
+
+  - evidence_id: gcp_iam_posture
+    signal: sa_key_creation_disabled
+    description: Org policy disables service account key creation
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["7.2.1", "8.6.1"]
+      soc2:      ["CC6.1", "CC6.3"]
+      iso_27001: ["A.5.15", "A.8.2"]
+      iso_42001: ["6.1.2"]
+
+  - evidence_id: gcp_iam_posture
+    signal: uniform_bucket_access_enforced
+    description: Uniform bucket-level access enforced via org policy
+    overlap: MEDIUM
+    frameworks:
+      pci_dss:   ["7.2.2"]
+      soc2:      ["CC6.1"]
+      iso_27001: ["A.5.15"]
+      iso_42001: []
+
+  - evidence_id: gcp_iam_posture
+    signal: os_login_required
+    description: OS Login required for VM SSH access (org policy)
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["8.2.1", "8.6.1"]
+      soc2:      ["CC6.1"]
+      iso_27001: ["A.5.16", "A.8.2"]
+      iso_42001: ["6.1.2"]
+
+  # ── GCP Audit Logging ─────────────────────────────────────────────────────
+  # Overlap: HIGH — mirrors aws_cloudtrail_logs signals
+
+  - evidence_id: gcp_audit_logging
+    signal: audit_log_sink_active
+    description: At least one active log sink exports audit logs
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["10.2.1", "10.2.2"]
+      soc2:      ["CC7.2"]
+      iso_27001: ["A.8.15"]
+      iso_42001: ["9.1"]
+
+  - evidence_id: gcp_audit_logging
+    signal: log_retention_meets_pci_365d
+    description: Log bucket retention is at least 365 days
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["10.5.1", "10.3.2"]
+      soc2:      ["CC7.2"]
+      iso_27001: ["A.8.15"]
+      iso_42001: ["9.1"]
+
+  - evidence_id: gcp_audit_logging
+    signal: data_write_logging_enabled
+    description: DATA_WRITE audit logs enabled for key GCP services
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["10.2.1", "10.7.1"]
+      soc2:      ["CC7.2", "CC7.3"]
+      iso_27001: ["A.8.15", "A.8.16"]
+      iso_42001: ["9.1.2"]
+
+  - evidence_id: gcp_audit_logging
+    signal: log_validation_via_locked_bucket
+    description: Log bucket is locked (tamper-evident retention)
+    overlap: MEDIUM
+    frameworks:
+      pci_dss:   ["10.3.2", "10.7.1"]
+      soc2:      ["CC7.2"]
+      iso_27001: ["A.8.15"]
+      iso_42001: []
+
+  # ── GCP Encryption & KMS ─────────────────────────────────────────────────
+  # Overlap: HIGH — mirrors aws Config encryption rules
+
+  - evidence_id: gcp_encryption
+    signal: all_kms_keys_have_rotation
+    description: All KMS keys have automatic rotation enabled
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["3.7.1", "3.6.1"]
+      soc2:      ["CC6.7"]
+      iso_27001: ["A.8.24"]
+      iso_42001: ["8.4"]
+
+  - evidence_id: gcp_encryption
+    signal: all_kms_keys_rotate_within_90d
+    description: All KMS key rotation periods are 90 days or less
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["3.7.1"]
+      soc2:      ["CC6.7"]
+      iso_27001: ["A.8.24"]
+      iso_42001: []
+
+  - evidence_id: gcp_encryption
+    signal: all_ssl_policies_tls12_or_higher
+    description: All SSL policies enforce TLS 1.2 or higher
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["4.2.1"]
+      soc2:      ["CC6.7"]
+      iso_27001: ["A.8.24"]
+      iso_42001: ["8.4"]
+
+  # ── Security Command Center ───────────────────────────────────────────────
+  # Overlap: HIGH — mirrors aws_securityhub_findings signals
+
+  - evidence_id: gcp_scc_findings
+    signal: scc_enabled
+    description: Security Command Center is enabled for the project
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["11.3.1", "11.3.2"]
+      soc2:      ["CC7.1", "CC7.2"]
+      iso_27001: ["A.8.8"]
+      iso_42001: ["6.6.2"]
+
+  - evidence_id: gcp_scc_findings
+    signal: security_health_analytics_active
+    description: Security Health Analytics source is active in SCC
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["2.2.1", "11.3.1"]
+      soc2:      ["CC7.1"]
+      iso_27001: ["A.8.8", "A.8.9"]
+      iso_42001: []
+
+  - evidence_id: gcp_scc_findings
+    signal: no_critical_findings
+    description: Zero CRITICAL severity findings in Security Command Center
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["6.3.3", "11.3.1"]
+      soc2:      ["CC7.1", "CC7.2"]
+      iso_27001: ["A.8.8"]
+      iso_42001: ["6.6.2"]
+
+  - evidence_id: gcp_scc_findings
+    signal: no_high_findings
+    description: Zero HIGH severity findings in Security Command Center
+    overlap: MEDIUM
+    frameworks:
+      pci_dss:   ["6.3.3"]
+      soc2:      ["CC7.1"]
+      iso_27001: ["A.8.8"]
+      iso_42001: []
+
+  # ── Google Workspace ──────────────────────────────────────────────────────
+  # Overlap: HIGH — mirrors aws_iam_posture MFA signals
+
+  - evidence_id: workspace_access_control
+    signal: all_users_have_mfa
+    description: All active Workspace users have 2-Step Verification enrolled
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["8.4.2", "8.4.3"]
+      soc2:      ["CC6.1"]
+      iso_27001: ["A.5.17", "A.8.5"]
+      iso_42001: ["6.1.2"]
+
+  - evidence_id: workspace_access_control
+    signal: no_admins_without_mfa
+    description: All Workspace admin accounts have MFA enrolled
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["8.4.2"]
+      soc2:      ["CC6.1"]
+      iso_27001: ["A.5.17"]
+      iso_42001: ["6.1.2"]
+
+  - evidence_id: workspace_access_control
+    signal: no_suspicious_login_events
+    description: No suspicious login events in the past 7 days
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["10.2.1"]
+      soc2:      ["CC7.2"]
+      iso_27001: ["A.8.16"]
+      iso_42001: ["6.5"]
+
+  - evidence_id: workspace_access_control
+    signal: no_unreviewed_admin_grants
+    description: No new admin privilege grants in the past 30 days
+    overlap: HIGH
+    frameworks:
+      pci_dss:   ["7.2.1", "8.2.1"]
+      soc2:      ["CC6.2", "CC6.3"]
+      iso_27001: ["A.5.15", "A.5.18"]
+      iso_42001: ["6.1.2"]
+
+  - evidence_id: workspace_access_control
+    signal: no_external_drive_sharing
+    description: No external Drive sharing events in the past 30 days
+    overlap: MEDIUM
+    frameworks:
+      pci_dss:   ["12.3.2"]
+      soc2:      ["CC6.6"]
+      iso_27001: ["A.5.15"]
+      iso_42001: []

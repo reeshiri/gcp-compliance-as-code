@@ -1,0 +1,18 @@
+# Evidence and reports ARE committed to the repo (audit trail via git history)
+# Only exclude credentials and local env files
+
+# Credentials — NEVER commit
+*.json
+!controls*.json
+sa-key.json
+*-credentials.json
+/tmp/workspace-sa.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
