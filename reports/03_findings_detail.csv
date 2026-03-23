@@ -1,1 +1,3 @@
 evidence_id,finding_type,severity,resource,detail,remediation,collected_at,gcp_project
+gcp_encryption,KMS key without automatic rotation enabled,MEDIUM,demo-key-no-rotation,,Enable automatic rotation in Cloud KMS > Key rings.,2026-03-23T15:41:04.591734+00:00,project-2b1e7276-412a-4f3c-9d6
+gcp_encryption,SSL policy permits TLS below 1.2 (PCI-DSS Req 4.2.1 failure),HIGH,demo-weak-tls-policy,,Update the SSL policy to set minTlsVersion to TLS_1_2 or higher.,2026-03-23T15:41:04.591734+00:00,project-2b1e7276-412a-4f3c-9d6
