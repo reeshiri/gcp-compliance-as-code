@@ -1,2 +1,0 @@
-evidence_id,finding_type,severity,resource,detail,remediation,collected_at,gcp_project
-gcp_encryption,KMS key without automatic rotation enabled,MEDIUM,demo-key-no-rotation,,Enable automatic rotation in Cloud KMS > Key rings.,2026-03-30T07:12:42.851297+00:00,project-2b1e7276-412a-4f3c-9d6

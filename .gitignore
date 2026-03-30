@@ -16,3 +16,8 @@ venv/
 
 # OS
 .DS_Store
+
+evidence/**/*.json
+reports/*.csv
+reports/*.html
+reports/*.docx
