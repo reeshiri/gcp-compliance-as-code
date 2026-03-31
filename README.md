@@ -14,3 +14,8 @@ infrastructure-only tools reach: user activity monitoring (DE.CM-03) and
 data exfiltration detection (PR.DS-10).
 
 ---
+## Compliance documents
+
+| Document | Description |
+|---|---|
+| [NIST CSF 2.0 Crosswalk](docs/NIST_CSF2_Crosswalk_GCP.docx) | Maps all evidence signals to NIST CSF 2.0 subcategories |
