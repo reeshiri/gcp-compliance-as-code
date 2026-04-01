@@ -13,6 +13,8 @@ Workspace coverage extends two NIST CSF 2.0 subcategories beyond what
 infrastructure-only tools reach: user activity monitoring (DE.CM-03) and
 data exfiltration detection (PR.DS-10).
 
+A second workflow runs every Monday and checks the official source for each framework for version changes, using RSS monitoring for PCI-DSS and NIST CSF and hash-based fingerprinting for ISO 27001, SOC 2, and ISO 42001. When a change is detected it opens a GitHub Issue with a review checklist. Every run is saved to `evidence/framework_versions/` as a timestamped artifact. See [docs/Framework_Version_Governance_Procedure.docx](docs/Framework_Version_Governance_Procedure.docx) for the full procedure.
+
 ---
 ## Compliance documents
 
